@@ -1,4 +1,4 @@
-require "literate/launch/version"
+require 'literate/launch/version'.freeze
 
 module Literate
   module Launch
