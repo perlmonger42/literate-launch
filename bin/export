@@ -1,0 +1,94 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'adobe/reactor'
+require 'literate/launch'
+
+RESOURCE_ID = /^(CO|PR|LB|RL|RC|DE|EN|AD|EX)[0-9A-Fa-f]{32}$/.freeze
+ENV_DEFAULT = 'REACTOR_EXPORT_RESOURCE_ID'
+
+# Print a warning message to STDERR
+def warn(msg)
+  STDERR.puts msg
+end
+
+# Print an error message to STDERR, and then exit
+def die(msg = nil)
+  raise msg if msg.is_a? StandardError
+
+  STDERR.puts msg || 'Unknown error'
+  exit 2
+end
+
+# Print a usage message to STDERR, and then exit
+def usage(msg = nil)
+  prog_name = File.basename($PROGRAM_NAME)
+  STDERR.puts msg if msg
+  STDERR.puts "Usage: #{prog_name} [-json|-yaml] [RESOURCE_ID]"
+  STDERR.puts
+  STDERR.puts 'The output format defaults to JSON.'
+  STDERR.puts "RESOURCE_ID defaults to $#{ENV_DEFAULT}"
+  exit 1
+end
+
+module CmdOptions
+  class << self
+    attr_accessor :export_format
+  end
+end
+
+# Handle any leading option switches on the commandline.
+# They are removed from ARGV, and their information is used
+# to set up CmdOptions module instance variables.
+def process_options
+  CmdOptions.export_format = 'json'
+  while !ARGV.empty? && ARGV.first =~ /^-/
+    opt = ARGV.slice!(0)
+    case opt
+    when '-yaml'
+      CmdOptions.export_format = 'yaml'
+    when '-json'
+      CmdOptions.export_format = 'json'
+    else
+      usage "Unknown option: #{opt}"
+    end
+  end
+end
+
+# Set up Adobe::Reactor with the necessary magic data
+def configure_reactor
+  api_token = ENV['REACTOR_API_TOKEN']
+  api_key = ENV['REACTOR_API_KEY']
+  # opts = {logging_level: 'DEBUG' }
+  opts = {}
+  Adobe::Reactor.configure(api_key, api_token, opts)
+end
+
+# Figure out what resource the user is requesting
+def determine_target_id
+  id = nil
+  if !ARGV.empty?
+    id = ARGV[0]
+    msg = 'invalid resource ID given on commandline'
+  else
+    id = ENV[ENV_DEFAULT]
+    msg = "invalid resource ID found in $#{ENV_DEFAULT}"
+  end
+  id =~ RESOURCE_ID && id || usage(msg)
+end
+
+begin
+  process_options
+  usage if ARGV.size > 1
+  target_id = determine_target_id
+  configure_reactor
+  if CmdOptions.export_format == 'json'
+    puts Literate::Launch::Export.as_json(target_id)
+  else
+    puts Literate::Launch::Export.as_yaml(target_id)
+  end
+rescue Adobe::Reactor::Client::HttpError => e
+  STDERR.puts "Error: #{e}"
+  # e.cause is always an instance of Faraday::Error::ClientError
+  STDERR.puts e.cause
+end
